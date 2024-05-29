@@ -1,65 +1,159 @@
 import streamlit as st
-import numpy as np
-
-import scrapetube
-from py_youtube import Data
-import pandas as pd
+import subprocess
+import google.generativeai as genai
+import json
+import base64
+import pathlib
+import pprint
+import requests
+import mimetypes
 import re
+import pandas as pd
 
-
-def videoList(type, id, limit=20):
-    if type=='playlist':
-        videos = [video['videoId'] for video in scrapetube.get_playlist(id)]
-    elif type=='channel':
-        videos = [video['videoId'] for video in scrapetube.get_channel(id)]
+def getSubtitle(url, language='English'):
+    if language == "English":
+        srt_command = f'yttool --language en --subtitles {url}'  # English playlist
     else:
-        videos = [video['videoId'] for video in scrapetube.get_search(id, limit, 1, 'relevance', 'video')]
-    
-    print(len(videos))
-    return videos
+        srt_command = f'yttool --language asr --subtitles {url}'  # for CampusX
 
-
-def getDataset(query, videos, language='English'):
-    video_info = []
-    for video in videos:
-        link = f'https://youtu.be/{video}'
-        data = Data(link).data()
-
-        if language=="English":
-            srt = f'yttool --language en --subtitles {video}' #English playlist
-        else:
-            srt = f'yttool --language asr --subtitles {video}' # for CampusX
-        # srt = f'yttool --subtitles {video}' #https://github.com/nlitsme/youtube_tool/
-
-
-        sbttl = {srt}
-        subtitle = " ".join(sbttl)
+    try:
+        result = subprocess.run(srt_command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subtitle = result.stdout
         word_count = len(subtitle.split())
+        return {"subtitle": subtitle, "wordcount": word_count}
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred: {e.stderr}")
+        return {"subtitle": "", "wordcount": 0}
 
-        video_info.append({
-            'id': data['id'],
-            'title': data['title'],
-            'views': data['views'],
-            'likes': data['likes'],
-            'thumbnails': data['thumbnails'],
-            'publishdate': data['publishdate'],
-            'channel_name': data['channel_name'],
-            'subscriber': data['subscriber'],
-            'category': data['category'],
-            'subtitle': subtitle,
-            'WordCount': word_count
-        })
 
-    finalDF = pd.DataFrame(video_info, columns=['id', 'title', 'views', 'likes', 'thumbnails', 'publishdate', 'channel_name', 'subscriber', 'category', 'subtitle', 'WordCount'])
-    finalDF['views'] = finalDF['views'].astype(float)
-    finalDF.to_csv(f'{query}.csv', index=False)
-    return finalDF
+# Function to validate the form inputs
+def validate_form(genaiAPI, language, postType, url):
+    if not genaiAPI:
+        st.error("genaiAPI is required")
+        return False
+    if language == "Unknown":
+        st.error("Please select a valid language")
+        return False
+    if not postType:
+        st.error("postType is required")
+        return False
+    if not url:
+        st.error("Video URL is required")
+        return False
+    # Additional validation logic can be added here
+    return True
 
-videos = videoList('channel','UCnXs-Nq1dzMZQOKUHKW3rdw') # type = playlist/channel/search # id=id/query
-dataset = getDataset('Bioinformagician', videos, language='English')
-dataset
+# Streamlit app code
+st.title("Video Processing Form")
 
-title = st.text_input('Title',"Default Text")
-st.write('The current movie title is', title)
-title
-print(title)
+# Create a form
+with st.sidebar.form(key='video_form'):
+    genaiAPI = st.text_input('genaiAPI', placeholder='Paste genaiAPI here')
+    language = st.selectbox("Video Language:", ("English", "Bangla", "Hindi", "Unknown"), placeholder="Language")
+    postType = st.selectbox("postType?", ("NoOutline", "WithOutline", "TipsNTricks", "Code"), placeholder="postType")
+    outline = st.text_input('outline', placeholder='outline')
+    model_name = st.text_input('gemini model:', "gemini-1.5-pro-latest")
+    url = st.text_input('Video URL', placeholder='Paste the URL here')
+
+    # Submit button
+    submit_button = st.form_submit_button(label='Submit')
+
+
+# Handle form submission
+with st.sidebar:
+    if submit_button:
+        if validate_form(genaiAPI, language, postType, url):
+            st.success("Form submitted successfully!")
+            # Downstream processing
+            st.write("Processing the form data...")
+            st.write(f"genaiAPI: {genaiAPI}")
+            st.write(f"Language: {language}")
+            st.write(f"postType: {postType}")
+            st.write(f"Outline: {outline}")
+            st.write(f"Model Name: {model_name}")
+            st.write(f"Video URL: {url}")
+        else:
+            st.error("Form submission failed due to validation errors.")
+            st.stop()
+
+
+# with st.form("my_form"):
+#     st.write("Inside the form")
+#     genaiAPI = st.text_input('genaiAPI', placeholder='Paste genaiAPI here')
+#     language = st.selectbox("Video Language:",("English", "Bangla", "Hindi", "Unknown"),index=None,placeholder="Language",    )
+#     postType = st.selectbox("postType?",("NoOutline", "WithOutline", "TipsNTricks", "Code"),index=None,placeholder="postType", )
+#     outline = st.text_input('outline', placeholder='outline')
+#     model_name = st.text_input('gemini model:', "gemini-1.5-pro-latest")
+#     url = st.text_input('Video URL', placeholder='Paste the URL here')
+
+#     # Every form must have a submit button.
+#     submitted = st.form_submit_button("Submit")
+#     if submitted:
+#         st.success('Thank you for submitting.')
+
+
+if not submit_button:
+    st.warning('Please submit the form.')
+    st.stop()
+
+genai.configure(api_key=genaiAPI)
+
+# Use regular expression to remove timestamps
+outline_cleaned = re.sub(r"\d+:\d+ - ", "", outline)
+outline_cleaned
+
+video = getSubtitle(url, language)
+video['wordcount']
+
+lecture = video['subtitle']
+
+if postType == "Code":
+    msg= f"""write the python code discussed in the lecture with great explanation. here is the lecture:
+    {lecture}
+    ”””
+    """
+elif postType == "WithOutline":
+    msg = f"""make a detailed blog with multisections including examples out of the given lecture in English following this outline:”””
+    {outline_cleaned}
+    ”””
+    Lecture:”””
+    {lecture}
+    ”””
+    Detailed Blog Post Including Examples:
+    """
+elif postType == "TipsNTricks":
+    msg = f"""You are very good in understanding Hindi. make a list of all the tips, tricks, or hacks in English from this LECTURE. Do not say that you can't process Hindi. : “””
+    {lecture}
+    ”””
+    """
+else:
+    msg = f"""make a blog with multisections out of this in English:”””
+    {lecture}
+    ”””
+    """
+
+msg
+
+# Set up the model
+generation_config = {"temperature": 1, "top_p": 0.95, "top_k": 0,
+                     "max_output_tokens": 8192,
+                    #  "max_output_tokens": 2048,
+                     }
+safety_settings = [{ "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+  { "category": "HARM_CATEGORY_HATE_SPEECH",  "threshold": "BLOCK_NONE"  },
+  { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+  { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }, ]
+
+system_instruction = ""
+
+model = genai.GenerativeModel(
+    model_name= model_name,
+    generation_config=generation_config,
+    # system_instruction=system_instruction,
+    safety_settings=safety_settings)
+
+
+convo = model.start_chat(history=[])
+convo.send_message(msg)
+response = convo.last
+response.text
