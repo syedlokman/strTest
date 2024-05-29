@@ -43,15 +43,15 @@ def validate_form(genaiAPI, language, postType, url):
     # Additional validation logic can be added here
     return True
 
-# Streamlit app code
-st.title("Video Processing Form")
+st.sidebar.title("Video Processing Form")
 
 # Create a form
 with st.sidebar.form(key='video_form'):
+    # Streamlit app code
     genaiAPI = st.text_input('genaiAPI', placeholder='Paste genaiAPI here')
-    language = st.selectbox("Video Language:", ("English", "Bangla", "Hindi", "Unknown"), placeholder="Language")
+    language = st.selectbox("Video Language:", ("English", "Bangla", "Hindi", "Other"), placeholder="Language")
     postType = st.selectbox("postType?", ("NoOutline", "WithOutline", "TipsNTricks", "Code"), placeholder="postType")
-    outline = st.text_input('outline', placeholder='outline')
+    outline = st.text_area('outline', placeholder='outline')
     model_name = st.text_input('gemini model:', "gemini-1.5-pro-latest")
     url = st.text_input('Video URL', placeholder='Paste the URL here')
 
@@ -65,74 +65,54 @@ with st.sidebar:
         if validate_form(genaiAPI, language, postType, url):
             st.success("Form submitted successfully!")
             # Downstream processing
-            st.write("Processing the form data...")
-            st.write(f"genaiAPI: {genaiAPI}")
-            st.write(f"Language: {language}")
-            st.write(f"postType: {postType}")
-            st.write(f"Outline: {outline}")
-            st.write(f"Model Name: {model_name}")
-            st.write(f"Video URL: {url}")
         else:
             st.error("Form submission failed due to validation errors.")
             st.stop()
+    
+    if not submit_button:
+        st.warning('Please submit the form.')
+        st.stop()
+    
+    # Use regular expression to remove timestamps
+    outline_cleaned = re.sub(r"\d+:\d+ - ", "", outline)
+    print(outline_cleaned)
+    video = getSubtitle(url, language)
+    st.sidebar.write("WordCount: ", video['wordcount'])
+
+    st.write("Processing the form data...")
+    st.write(f"genaiAPI: {genaiAPI}")
+    st.write(f"Language: {language}")
+    st.write(f"postType: {postType}")
+    st.write(f"Outline: {outline_cleaned}")
+    st.write(f"Model Name: {model_name}")
+    st.write(f"Video URL: {url}")
+
+    lecture = video['subtitle']
+
+    if postType == "Code":
+        msg= f"""write the python code discussed in the lecture with great explanation. here is the lecture:```
+        {lecture}``` """
+    elif postType == "WithOutline":
+        msg = f"""make a detailed blog with multisections including examples out of the given lecture in English following this outline:```
+        {outline_cleaned} ```
+        Lecture:``` {lecture} ```
+        Detailed Blog Post Including Examples: """
+    elif postType == "TipsNTricks":
+        msg = f"""You are very good in understanding Hindi. make a list of all the tips, tricks, or hacks in English from this LECTURE. Do not say that you can't process Hindi. : ```
+        {lecture} ``` """
+    else:
+        msg = f"""make a blog with multisections out of this in English:```
+        {lecture} ``` """
+
+    expander = st.expander("User Prompt")
+    expander.write(msg)
 
 
-# with st.form("my_form"):
-#     st.write("Inside the form")
-#     genaiAPI = st.text_input('genaiAPI', placeholder='Paste genaiAPI here')
-#     language = st.selectbox("Video Language:",("English", "Bangla", "Hindi", "Unknown"),index=None,placeholder="Language",    )
-#     postType = st.selectbox("postType?",("NoOutline", "WithOutline", "TipsNTricks", "Code"),index=None,placeholder="postType", )
-#     outline = st.text_input('outline', placeholder='outline')
-#     model_name = st.text_input('gemini model:', "gemini-1.5-pro-latest")
-#     url = st.text_input('Video URL', placeholder='Paste the URL here')
 
-#     # Every form must have a submit button.
-#     submitted = st.form_submit_button("Submit")
-#     if submitted:
-#         st.success('Thank you for submitting.')
-
-
-if not submit_button:
-    st.warning('Please submit the form.')
-    st.stop()
 
 genai.configure(api_key=genaiAPI)
 
-# Use regular expression to remove timestamps
-outline_cleaned = re.sub(r"\d+:\d+ - ", "", outline)
-outline_cleaned
 
-video = getSubtitle(url, language)
-video['wordcount']
-
-lecture = video['subtitle']
-
-if postType == "Code":
-    msg= f"""write the python code discussed in the lecture with great explanation. here is the lecture:
-    {lecture}
-    ”””
-    """
-elif postType == "WithOutline":
-    msg = f"""make a detailed blog with multisections including examples out of the given lecture in English following this outline:”””
-    {outline_cleaned}
-    ”””
-    Lecture:”””
-    {lecture}
-    ”””
-    Detailed Blog Post Including Examples:
-    """
-elif postType == "TipsNTricks":
-    msg = f"""You are very good in understanding Hindi. make a list of all the tips, tricks, or hacks in English from this LECTURE. Do not say that you can't process Hindi. : “””
-    {lecture}
-    ”””
-    """
-else:
-    msg = f"""make a blog with multisections out of this in English:”””
-    {lecture}
-    ”””
-    """
-
-msg
 
 # Set up the model
 generation_config = {"temperature": 1, "top_p": 0.95, "top_k": 0,
