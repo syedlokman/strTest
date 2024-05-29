@@ -1,0 +1,4 @@
+streamlit
+google-generativeai
+py-youtube
+youtube-tool
